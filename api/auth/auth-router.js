@@ -1,13 +1,17 @@
 const router = require("express").Router();
-const {} = require("./auth-middleware"); //name of middleware
+const restricted = require("../middleware/restricted");
 const bcryptjs = require("bcryptjs");
-const { JWT_SECRET } = require("../secrets"); // use this secret!
-//const Jokes = require("../jokes/jokes-data"); //wait, require user somehow?
+const Users = require("./users-model");
 
-router.post("/register", (req, res) => {//add middleware
-  res.end("implement register, please!"); //What is this?
-
+router.post("/register", (req, res) => {
   const credentials = req.body;
+  if (!credentials.username || !credentials.password) {
+    res.status(500).json({ message: "username and password required" });
+  }
+  const existing = Users.findByUsername(credentials.username);
+  if (existing) {
+    res.status(500).json({ message: "username taken" });
+  }
   const rounds = process.env.BCRYPT_ROUNDS || 8;
 
   const hash = bcryptjs.hashSync(credentials.password, rounds);
@@ -15,11 +19,11 @@ router.post("/register", (req, res) => {//add middleware
   credentials.password = hash;
 
   Users.add(credentials)
-    .then((user) => {
-      res.status(201).json({ data: user });
+    .then((userId) => {
+      res.status(201).json({ id: userId, ...credentials });
     })
     .catch((error) => {
-      res.status(500).json({ message: error.message }); //need 2 kinds of errors
+      res.status(500).json({ message: error.message });
     });
 
   /*
@@ -49,20 +53,24 @@ router.post("/register", (req, res) => {//add middleware
   */
 });
 
-router.post("/login", (req, res) => {//add middleware
-  res.end("implement login, please!"); //what is this?
+router.post("/login", restricted, (req, res) => {
   const { username, password } = req.body;
+  if (!username || !password) {
+    res.status(500).json({ message: "username and password required" });
+  }
 
-  User.findBy({ username: username })
+  Users.findByUsername(username)
     .then(([user]) => {
       // compare the password the hash stored in the database
       if (user && bcryptjs.compareSync(password, user.password)) {
         const token = buildToken(user);
-        res.status(200).json({ message: "welcome, Captain Marvel", token });
+        res.status(200).json({ message: `welcome, ${user.username}`, token });
+      } else {
+        res.status(500).json({ message: "invalid credentials" });
       }
     })
     .catch((error) => {
-      res.status(500).json({ message: error.message });//need two kinds of errors
+      res.status(500).json({ message: error.message });
     });
 
   /*
@@ -94,7 +102,6 @@ function buildToken(user) {
   const payload = {
     subject: user.id,
     username: user.username,
-    role_name: user.role_name,
   };
   const config = {
     expiresIn: "1d",
